@@ -39,7 +39,8 @@
     maxSeatsPerUser: 6,
     includedSeats: 2,
     includedPrice: 18,
-    extraPrice: 28
+    extraPrice: 28,
+    approvalDays: 3
   });
 
   let state = loadState();
@@ -68,6 +69,12 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
+  function purgeExpiredBookings() {
+    const before = state.bookings.length;
+    state.bookings = state.bookings.filter((booking) => !isBookingExpired(booking));
+    if (state.bookings.length !== before) saveState();
+  }
+
   function money(value) {
     return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(Number(value || 0));
   }
@@ -82,6 +89,40 @@
 
   function eventById(id) {
     return state.events.find((event) => event.id === id);
+  }
+
+  function userById(id) {
+    return state.users.find((user) => user.id === id);
+  }
+
+  function approvalDaysForEvent(event) {
+    return Math.max(1, Number(event?.approvalDays || 3));
+  }
+
+  function bookingStatus(booking) {
+    return booking.status || "approved";
+  }
+
+  function bookingCreatedAt(booking) {
+    return booking.createdAt || booking.paidAt || new Date().toISOString();
+  }
+
+  function bookingExpiresAt(booking) {
+    const eventItem = eventById(booking.eventId);
+    const expires = new Date(bookingCreatedAt(booking));
+    expires.setDate(expires.getDate() + approvalDaysForEvent(eventItem));
+    return expires;
+  }
+
+  function isBookingExpired(booking) {
+    return bookingStatus(booking) === "pending" && bookingExpiresAt(booking).getTime() < Date.now();
+  }
+
+  function formatDateTime(value) {
+    return new Intl.DateTimeFormat("it-IT", {
+      dateStyle: "short",
+      timeStyle: "short"
+    }).format(new Date(value));
   }
 
   function seatsForTheater(theater) {
@@ -119,6 +160,8 @@
   }
 
   function render() {
+    purgeExpiredBookings();
+
     if (!currentUser()) {
       renderAuth();
       return;
@@ -139,6 +182,7 @@
             ${user.role === "admin" ? navButton("theaters", "Teatri") : ""}
             ${user.role === "admin" ? navButton("events", "Eventi") : ""}
             ${user.role === "admin" ? navButton("users", "Utenti") : ""}
+            ${user.role === "admin" ? navButton("approvals", "Approvazioni") : ""}
           </nav>
           <div></div>
           <div class="user-panel">
@@ -165,6 +209,7 @@
     if (state.activeView === "my") return renderMyBookings();
     if (state.activeView === "account") return renderAccount();
     if (state.activeView === "users" && currentUser()?.role === "admin") return renderUsers();
+    if (state.activeView === "approvals" && currentUser()?.role === "admin") return renderApprovals();
     return renderBookings();
   }
 
@@ -347,6 +392,7 @@
             <label>Data<input name="date" type="date" required /></label>
             <label>Teatro<select name="theaterId" required>${theaterSelectOptions()}</select></label>
             <label>Massimo posti per utente<input name="maxSeatsPerUser" type="number" min="1" value="6" required /></label>
+            <label>Giorni per approvazione<input name="approvalDays" type="number" min="1" value="3" required /></label>
             <label>Posti a prezzo base<input name="includedSeats" type="number" min="0" value="2" required /></label>
             <label>Prezzo base per posto<input name="includedPrice" type="number" min="0" step="0.01" value="18" required /></label>
             <label>Prezzo aggiuntivo per posto<input name="extraPrice" type="number" min="0" step="0.01" value="28" required /></label>
@@ -373,6 +419,7 @@
           <span>${theater ? escapeHtml(theater.name) : "Teatro mancante"}</span>
           <span>${reserved}/${capacity} prenotati</span>
           <span>Max ${eventItem.maxSeatsPerUser} per utente</span>
+          <span>Approvazione entro ${approvalDaysForEvent(eventItem)} giorni</span>
         </div>
         <div class="meta">
           <span>${eventItem.includedSeats} posti a ${money(eventItem.includedPrice)}</span>
@@ -421,7 +468,9 @@
                   <div class="summary-row"><span>Posti già tuoi</span><strong>${userSeats.length}</strong></div>
                   <div class="summary-row"><span>Nuova selezione</span><strong>${state.selectedSeats.length}</strong></div>
                   <div class="summary-row"><span>Totale da pagare</span><strong>${money(total)}</strong></div>
+                  <div class="summary-row"><span>Approvazione entro</span><strong>${approvalDaysForEvent(selectedEvent)} giorni</strong></div>
                 </div>
+                <div class="notice">Dopo il pagamento la prenotazione resta in attesa finché l'amministratore la approva.</div>
                 <div class="notice ${nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "hidden" : ""}">
                   Hai superato il massimo configurato per questo evento.
                 </div>
@@ -484,6 +533,7 @@
               .map((booking) => {
                 const eventItem = eventById(booking.eventId);
                 const theater = eventItem ? theaterById(eventItem.theaterId) : null;
+                const status = bookingStatus(booking);
                 return `
                   <article class="card">
                     <h3>${eventItem ? escapeHtml(eventItem.title) : "Evento eliminato"}</h3>
@@ -492,6 +542,7 @@
                       <span>${theater ? escapeHtml(theater.name) : ""}</span>
                       <span>${booking.seats.length} posti</span>
                       <span>${money(booking.total)}</span>
+                      <span>${status === "approved" ? "Approvata" : `In attesa fino al ${formatDateTime(bookingExpiresAt(booking))}`}</span>
                     </div>
                     <div>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat)}</span>`).join(" ")}</div>
                   </article>
@@ -610,6 +661,74 @@
     `;
   }
 
+  function renderApprovals() {
+    const rows = state.bookings
+      .map((booking) => {
+        const user = userById(booking.userId);
+        const eventItem = eventById(booking.eventId);
+        const theater = eventItem ? theaterById(eventItem.theaterId) : null;
+        const status = bookingStatus(booking);
+        return `
+          <tr>
+            <td>
+              <strong>${user ? escapeHtml(user.name) : "Utente eliminato"}</strong>
+              <span>${user ? escapeHtml(user.email) : ""}</span>
+            </td>
+            <td>
+              <strong>${eventItem ? escapeHtml(eventItem.title) : "Evento eliminato"}</strong>
+              <span>${eventItem ? escapeHtml(eventItem.date) : ""}${theater ? ` · ${escapeHtml(theater.name)}` : ""}</span>
+            </td>
+            <td>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat)}</span>`).join(" ")}</td>
+            <td>${money(booking.total)}</td>
+            <td>
+              <span class="badge ${status === "approved" ? "ok" : "warn"}">${status === "approved" ? "Approvata" : "In attesa"}</span>
+              <span>${status === "approved" ? formatDateTime(booking.approvedAt || booking.paidAt || bookingCreatedAt(booking)) : `Scade ${formatDateTime(bookingExpiresAt(booking))}`}</span>
+            </td>
+            <td>
+              <div class="actions compact-actions">
+                <button data-approve-booking="${booking.id}" ${status === "approved" ? "disabled" : ""}>Approva</button>
+                <button class="danger" data-delete-booking="${booking.id}">Elimina</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const pendingCount = state.bookings.filter((booking) => bookingStatus(booking) === "pending").length;
+    const approvedCount = state.bookings.filter((booking) => bookingStatus(booking) === "approved").length;
+
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Approvazioni</h1>
+          <p>Controlla le prenotazioni per utente e approva quelle in attesa.</p>
+        </div>
+      </div>
+      <section class="panel">
+        <div class="summary">
+          <div class="summary-row"><span>In attesa</span><strong>${pendingCount}</strong></div>
+          <div class="summary-row"><span>Approvate</span><strong>${approvedCount}</strong></div>
+        </div>
+        <div class="table-wrap">
+          <table class="user-table">
+            <thead>
+              <tr>
+                <th>Utente</th>
+                <th>Evento</th>
+                <th>Posti</th>
+                <th>Totale</th>
+                <th>Stato</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows || `<tr><td colspan="6">Nessuna prenotazione presente.</td></tr>`}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
   function bindCommon() {
     app.querySelectorAll("[data-view]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -702,6 +821,14 @@
     app.querySelectorAll("[data-delete-user]").forEach((button) => {
       button.addEventListener("click", () => deleteUser(button.dataset.deleteUser));
     });
+
+    app.querySelectorAll("[data-approve-booking]").forEach((button) => {
+      button.addEventListener("click", () => approveBooking(button.dataset.approveBooking));
+    });
+
+    app.querySelectorAll("[data-delete-booking]").forEach((button) => {
+      button.addEventListener("click", () => deleteBooking(button.dataset.deleteBooking));
+    });
   }
 
   async function createTheater(event) {
@@ -753,6 +880,7 @@
       date: String(form.get("date")),
       theaterId: String(form.get("theaterId")),
       maxSeatsPerUser: Number(form.get("maxSeatsPerUser")),
+      approvalDays: Number(form.get("approvalDays")),
       includedSeats: Number(form.get("includedSeats")),
       includedPrice: Number(form.get("includedPrice")),
       extraPrice: Number(form.get("extraPrice"))
@@ -867,10 +995,37 @@
       eventId: eventItem.id,
       seats: [...state.selectedSeats],
       total: bookingTotalForAdditional(eventItem, userSeats.length, state.selectedSeats.length),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      approvedAt: null,
       paidAt: new Date().toISOString()
     });
     state.selectedSeats = [];
     state.activeView = "my";
+    saveState();
+    render();
+  }
+
+  function approveBooking(bookingId) {
+    const booking = state.bookings.find((item) => item.id === bookingId);
+    if (!booking) return;
+
+    booking.status = "approved";
+    booking.approvedAt = new Date().toISOString();
+    saveState();
+    render();
+  }
+
+  function deleteBooking(bookingId) {
+    const booking = state.bookings.find((item) => item.id === bookingId);
+    if (!booking) return;
+
+    const user = userById(booking.userId);
+    const eventItem = eventById(booking.eventId);
+    const label = `${user?.email || "utente"} - ${eventItem?.title || "evento"}`;
+    if (!confirm(`Eliminare la prenotazione ${label}?`)) return;
+
+    state.bookings = state.bookings.filter((item) => item.id !== bookingId);
     saveState();
     render();
   }

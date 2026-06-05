@@ -288,6 +288,20 @@ label.upload-button {
   font-weight: 700;
 }
 
+.badge.ok {
+  background: #d9eee7;
+  color: #0a5c4c;
+}
+
+.badge.warn {
+  background: #fff2d8;
+  color: #7a4a08;
+}
+
+.compact-actions {
+  gap: 6px;
+}
+
 .stage {
   height: 34px;
   border-radius: 0 0 18px 18px;

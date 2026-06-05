@@ -1,0 +1,605 @@
+(function () {
+  const STORAGE_KEY = "prenotazioni-etoile-v1";
+
+  const initialState = {
+    currentUserId: null,
+    authMode: "login",
+    activeView: "bookings",
+    selectedEventId: null,
+    selectedSeats: [],
+    users: [
+      {
+        id: "admin",
+        name: "Amministratore",
+        email: "admin@etoile.local",
+        password: "admin123",
+        role: "admin"
+      }
+    ],
+    theaters: [
+      {
+        id: uid(),
+        name: "Teatro Etoile",
+        city: "Milano",
+        rows: 8,
+        seatsPerRow: 12
+      }
+    ],
+    events: [],
+    bookings: []
+  };
+
+  initialState.events.push({
+    id: uid(),
+    title: "Gala di danza contemporanea",
+    date: new Date().toISOString().slice(0, 10),
+    theaterId: initialState.theaters[0].id,
+    maxSeatsPerUser: 6,
+    includedSeats: 2,
+    includedPrice: 18,
+    extraPrice: 28
+  });
+
+  let state = loadState();
+  const app = document.getElementById("app");
+
+  function uid() {
+    return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  }
+
+  function loadState() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return structuredClone(initialState);
+    try {
+      const parsed = JSON.parse(saved);
+      return {
+        ...structuredClone(initialState),
+        ...parsed,
+        selectedSeats: []
+      };
+    } catch {
+      return structuredClone(initialState);
+    }
+  }
+
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function money(value) {
+    return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(Number(value || 0));
+  }
+
+  function currentUser() {
+    return state.users.find((user) => user.id === state.currentUserId) || null;
+  }
+
+  function theaterById(id) {
+    return state.theaters.find((theater) => theater.id === id);
+  }
+
+  function eventById(id) {
+    return state.events.find((event) => event.id === id);
+  }
+
+  function seatsForTheater(theater) {
+    const seats = [];
+    for (let row = 1; row <= Number(theater.rows); row += 1) {
+      for (let seat = 1; seat <= Number(theater.seatsPerRow); seat += 1) {
+        seats.push(`${row}-${seat}`);
+      }
+    }
+    return seats;
+  }
+
+  function seatLabel(code) {
+    const [row, seat] = code.split("-");
+    return `Fila ${row}, posto ${seat}`;
+  }
+
+  function reservedSeats(eventId) {
+    return state.bookings
+      .filter((booking) => booking.eventId === eventId)
+      .flatMap((booking) => booking.seats);
+  }
+
+  function userSeatsForEvent(eventId, userId) {
+    return state.bookings
+      .filter((booking) => booking.eventId === eventId && booking.userId === userId)
+      .flatMap((booking) => booking.seats);
+  }
+
+  function bookingTotalForAdditional(event, alreadyBookedCount, newCount) {
+    const baseRemaining = Math.max(0, Number(event.includedSeats) - alreadyBookedCount);
+    const included = Math.min(newCount, baseRemaining);
+    const extra = Math.max(0, newCount - included);
+    return included * Number(event.includedPrice) + extra * Number(event.extraPrice);
+  }
+
+  function render() {
+    if (!currentUser()) {
+      renderAuth();
+      return;
+    }
+
+    const user = currentUser();
+    app.innerHTML = `
+      <div class="shell">
+        <aside class="sidebar">
+          <div class="brand">
+            <strong>Prenotazioni Etoile</strong>
+            <span>Posti teatro per danza</span>
+          </div>
+          <nav class="nav">
+            ${navButton("bookings", "Prenotazioni")}
+            ${navButton("my", "I miei posti")}
+            ${user.role === "admin" ? navButton("theaters", "Teatri") : ""}
+            ${user.role === "admin" ? navButton("events", "Eventi") : ""}
+          </nav>
+          <div></div>
+          <div class="user-panel">
+            <strong>${escapeHtml(user.name)}</strong>
+            <span>${escapeHtml(user.email)} · ${user.role === "admin" ? "admin" : "utente"}</span>
+            <button class="secondary" data-action="logout">Esci</button>
+          </div>
+        </aside>
+        <main class="main">
+          ${renderView()}
+        </main>
+      </div>
+    `;
+    bindCommon();
+  }
+
+  function navButton(view, label) {
+    return `<button class="${state.activeView === view ? "active" : ""}" data-view="${view}">${label}</button>`;
+  }
+
+  function renderView() {
+    if (state.activeView === "theaters") return renderTheaters();
+    if (state.activeView === "events") return renderEvents();
+    if (state.activeView === "my") return renderMyBookings();
+    return renderBookings();
+  }
+
+  function renderAuth() {
+    const isRegister = state.authMode === "register";
+    app.innerHTML = `
+      <section class="auth-page">
+        <div class="auth-card">
+          <div class="auth-intro">
+            <h1>Prenotazioni Etoile</h1>
+            <p>Gestione dei teatri, eventi di danza, mappe posti, prenotazioni e stampa dei biglietti senza database server.</p>
+          </div>
+          <form class="auth-form" data-form="${isRegister ? "register" : "login"}">
+            <div class="tabs">
+              <button type="button" class="${!isRegister ? "active" : ""}" data-auth-mode="login">Accedi</button>
+              <button type="button" class="${isRegister ? "active" : ""}" data-auth-mode="register">Registrati</button>
+            </div>
+            ${isRegister ? `<label>Nome<input name="name" required autocomplete="name" /></label>` : ""}
+            <label>Email<input name="email" type="email" required autocomplete="email" /></label>
+            <label>Password<input name="password" type="password" required autocomplete="${isRegister ? "new-password" : "current-password"}" /></label>
+            <button type="submit">${isRegister ? "Crea account" : "Accedi"}</button>
+            <div class="notice">Account demo amministratore: admin@etoile.local / admin123</div>
+          </form>
+        </div>
+      </section>
+    `;
+
+    app.querySelectorAll("[data-auth-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.authMode = button.dataset.authMode;
+        render();
+      });
+    });
+
+    app.querySelector("form").addEventListener("submit", handleAuth);
+  }
+
+  function handleAuth(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email")).trim().toLowerCase();
+    const password = String(form.get("password"));
+
+    if (event.currentTarget.dataset.form === "register") {
+      if (state.users.some((user) => user.email === email)) {
+        alert("Esiste già un account con questa email.");
+        return;
+      }
+      const user = {
+        id: uid(),
+        name: String(form.get("name")).trim() || email,
+        email,
+        password,
+        role: "user"
+      };
+      state.users.push(user);
+      state.currentUserId = user.id;
+      state.activeView = "bookings";
+      saveState();
+      render();
+      return;
+    }
+
+    const user = state.users.find((item) => item.email === email && item.password === password);
+    if (!user) {
+      alert("Email o password non valide.");
+      return;
+    }
+    state.currentUserId = user.id;
+    saveState();
+    render();
+  }
+
+  function renderTheaters() {
+    const theaterOptions = state.theaters.map((theater) => theaterCard(theater)).join("");
+    const preview = state.theaters[0] ? renderSeatMap(state.theaters[0], null, []) : `<div class="empty">Crea il primo teatro.</div>`;
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Teatri</h1>
+          <p>Crea sale con matrice fila/posto e controlla la visualizzazione grafica.</p>
+        </div>
+      </div>
+      <section class="grid">
+        <form class="panel" data-form="theater">
+          <h2>Nuovo teatro</h2>
+          <div class="form-grid">
+            <label class="full">Nome teatro<input name="name" required placeholder="Es. Teatro Civico" /></label>
+            <label>Città<input name="city" required placeholder="Es. Roma" /></label>
+            <label>File<input name="rows" type="number" min="1" max="40" value="10" required /></label>
+            <label>Posti per fila<input name="seatsPerRow" type="number" min="1" max="60" value="14" required /></label>
+          </div>
+          <button type="submit">Crea teatro</button>
+        </form>
+        <div class="panel">
+          <h2>Anteprima posti</h2>
+          ${preview}
+        </div>
+      </section>
+      <section class="list">${theaterOptions || `<div class="empty">Nessun teatro disponibile.</div>`}</section>
+    `;
+  }
+
+  function theaterCard(theater) {
+    const seats = Number(theater.rows) * Number(theater.seatsPerRow);
+    const usedByEvents = state.events.some((event) => event.theaterId === theater.id);
+    return `
+      <article class="card">
+        <h3>${escapeHtml(theater.name)}</h3>
+        <div class="meta">
+          <span>${escapeHtml(theater.city)}</span>
+          <span>${theater.rows} file</span>
+          <span>${theater.seatsPerRow} posti/fila</span>
+          <span>${seats} posti totali</span>
+        </div>
+        <div class="actions">
+          <button class="danger" data-delete-theater="${theater.id}" ${usedByEvents ? "disabled" : ""}>Elimina</button>
+          ${usedByEvents ? `<span class="badge">Associato a eventi</span>` : ""}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderEvents() {
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Eventi</h1>
+          <p>Associa ogni evento a un teatro e definisci limiti e prezzi dei posti.</p>
+        </div>
+      </div>
+      <section class="grid">
+        <form class="panel" data-form="event">
+          <h2>Nuovo evento</h2>
+          <div class="form-grid">
+            <label class="full">Titolo<input name="title" required placeholder="Es. Saggio classico" /></label>
+            <label>Data<input name="date" type="date" required /></label>
+            <label>Teatro<select name="theaterId" required>${theaterSelectOptions()}</select></label>
+            <label>Massimo posti per utente<input name="maxSeatsPerUser" type="number" min="1" value="6" required /></label>
+            <label>Posti a prezzo base<input name="includedSeats" type="number" min="0" value="2" required /></label>
+            <label>Prezzo base per posto<input name="includedPrice" type="number" min="0" step="0.01" value="18" required /></label>
+            <label>Prezzo aggiuntivo per posto<input name="extraPrice" type="number" min="0" step="0.01" value="28" required /></label>
+          </div>
+          <button type="submit" ${state.theaters.length ? "" : "disabled"}>Crea evento</button>
+        </form>
+        <div class="panel">
+          <h2>Eventi creati</h2>
+          <div class="list">${state.events.map(eventCard).join("") || `<div class="empty">Nessun evento disponibile.</div>`}</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function eventCard(eventItem) {
+    const theater = theaterById(eventItem.theaterId);
+    const reserved = reservedSeats(eventItem.id).length;
+    const capacity = theater ? Number(theater.rows) * Number(theater.seatsPerRow) : 0;
+    return `
+      <article class="card">
+        <h3>${escapeHtml(eventItem.title)}</h3>
+        <div class="meta">
+          <span>${escapeHtml(eventItem.date)}</span>
+          <span>${theater ? escapeHtml(theater.name) : "Teatro mancante"}</span>
+          <span>${reserved}/${capacity} prenotati</span>
+          <span>Max ${eventItem.maxSeatsPerUser} per utente</span>
+        </div>
+        <div class="meta">
+          <span>${eventItem.includedSeats} posti a ${money(eventItem.includedPrice)}</span>
+          <span>extra ${money(eventItem.extraPrice)}</span>
+        </div>
+        <div class="actions">
+          <button class="secondary" data-open-event="${eventItem.id}">Apri prenotazioni</button>
+          <button class="danger" data-delete-event="${eventItem.id}">Elimina</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function theaterSelectOptions() {
+    return state.theaters.map((theater) => `<option value="${theater.id}">${escapeHtml(theater.name)} · ${escapeHtml(theater.city)}</option>`).join("");
+  }
+
+  function renderBookings() {
+    const selectedEvent = eventById(state.selectedEventId) || state.events[0];
+    if (selectedEvent && state.selectedEventId !== selectedEvent.id) state.selectedEventId = selectedEvent.id;
+    const theater = selectedEvent ? theaterById(selectedEvent.theaterId) : null;
+    const userSeats = selectedEvent ? userSeatsForEvent(selectedEvent.id, state.currentUserId) : [];
+    const nextCount = userSeats.length + state.selectedSeats.length;
+    const total = selectedEvent ? bookingTotalForAdditional(selectedEvent, userSeats.length, state.selectedSeats.length) : 0;
+    const eventSelect = state.events
+      .map((eventItem) => `<option value="${eventItem.id}" ${selectedEvent?.id === eventItem.id ? "selected" : ""}>${escapeHtml(eventItem.title)} · ${escapeHtml(eventItem.date)}</option>`)
+      .join("");
+
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Prenotazioni</h1>
+          <p>Scegli un evento, seleziona i posti disponibili e conferma il pagamento.</p>
+        </div>
+      </div>
+      ${
+        selectedEvent && theater
+          ? `
+            <section class="grid">
+              <div class="panel">
+                <h2>Scelta evento</h2>
+                <label>Evento<select data-event-picker>${eventSelect}</select></label>
+                <div class="summary">
+                  <div class="summary-row"><span>Teatro</span><strong>${escapeHtml(theater.name)}</strong></div>
+                  <div class="summary-row"><span>Limite per utente</span><strong>${selectedEvent.maxSeatsPerUser}</strong></div>
+                  <div class="summary-row"><span>Posti già tuoi</span><strong>${userSeats.length}</strong></div>
+                  <div class="summary-row"><span>Nuova selezione</span><strong>${state.selectedSeats.length}</strong></div>
+                  <div class="summary-row"><span>Totale da pagare</span><strong>${money(total)}</strong></div>
+                </div>
+                <div class="notice ${nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "hidden" : ""}">
+                  Hai superato il massimo configurato per questo evento.
+                </div>
+                <div class="actions">
+                  <button data-action="confirm-booking" ${state.selectedSeats.length && nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "" : "disabled"}>Paga e prenota</button>
+                  <button class="secondary" data-action="clear-selection">Annulla selezione</button>
+                </div>
+              </div>
+              <div class="panel">
+                <h2>Mappa posti</h2>
+                ${renderSeatMap(theater, selectedEvent, state.selectedSeats)}
+              </div>
+            </section>
+          `
+          : `<div class="empty">Crea almeno un teatro e un evento per iniziare le prenotazioni.</div>`
+      }
+    `;
+  }
+
+  function renderSeatMap(theater, eventItem, selectedSeats) {
+    const taken = eventItem ? reservedSeats(eventItem.id) : [];
+    const mine = eventItem ? userSeatsForEvent(eventItem.id, state.currentUserId) : [];
+    let rows = "";
+    for (let row = 1; row <= Number(theater.rows); row += 1) {
+      let seats = "";
+      for (let seat = 1; seat <= Number(theater.seatsPerRow); seat += 1) {
+        const code = `${row}-${seat}`;
+        const isTaken = taken.includes(code);
+        const isMine = mine.includes(code);
+        const isSelected = selectedSeats.includes(code);
+        const classes = ["seat", isTaken ? "taken" : "", isMine ? "mine" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
+        seats += `<button class="${classes}" data-seat="${code}" ${isTaken || !eventItem ? "disabled" : ""} title="${seatLabel(code)}">${seat}</button>`;
+      }
+      rows += `<div class="seat-row" style="--cols:${theater.seatsPerRow}"><span class="row-label">F${row}</span>${seats}</div>`;
+    }
+    return `<div class="stage">Palco</div><div class="seat-map-wrap"><div class="seat-map">${rows}</div></div>`;
+  }
+
+  function renderMyBookings() {
+    const bookings = state.bookings.filter((booking) => booking.userId === state.currentUserId);
+    return `
+      <div class="topbar">
+        <div>
+          <h1>I miei posti</h1>
+          <p>Riepilogo stampabile dei posti prenotati e pagati.</p>
+        </div>
+        <button data-action="print-bookings" ${bookings.length ? "" : "disabled"}>Stampa</button>
+      </div>
+      <section class="panel printable">
+        <h2>Prenotazioni confermate</h2>
+        <div class="list">
+          ${
+            bookings
+              .map((booking) => {
+                const eventItem = eventById(booking.eventId);
+                const theater = eventItem ? theaterById(eventItem.theaterId) : null;
+                return `
+                  <article class="card">
+                    <h3>${eventItem ? escapeHtml(eventItem.title) : "Evento eliminato"}</h3>
+                    <div class="meta">
+                      <span>${eventItem ? escapeHtml(eventItem.date) : ""}</span>
+                      <span>${theater ? escapeHtml(theater.name) : ""}</span>
+                      <span>${booking.seats.length} posti</span>
+                      <span>${money(booking.total)}</span>
+                    </div>
+                    <div>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat)}</span>`).join(" ")}</div>
+                  </article>
+                `;
+              })
+              .join("") || `<div class="empty">Non hai ancora prenotazioni.</div>`
+          }
+        </div>
+      </section>
+    `;
+  }
+
+  function bindCommon() {
+    app.querySelectorAll("[data-view]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.activeView = button.dataset.view;
+        state.selectedSeats = [];
+        saveState();
+        render();
+      });
+    });
+
+    app.querySelector("[data-action='logout']")?.addEventListener("click", () => {
+      state.currentUserId = null;
+      state.selectedSeats = [];
+      saveState();
+      render();
+    });
+
+    app.querySelector("[data-form='theater']")?.addEventListener("submit", createTheater);
+    app.querySelector("[data-form='event']")?.addEventListener("submit", createEvent);
+    app.querySelector("[data-event-picker]")?.addEventListener("change", (event) => {
+      state.selectedEventId = event.target.value;
+      state.selectedSeats = [];
+      saveState();
+      render();
+    });
+
+    app.querySelectorAll("[data-seat]").forEach((seatButton) => {
+      seatButton.addEventListener("click", () => toggleSeat(seatButton.dataset.seat));
+    });
+
+    app.querySelector("[data-action='clear-selection']")?.addEventListener("click", () => {
+      state.selectedSeats = [];
+      render();
+    });
+
+    app.querySelector("[data-action='confirm-booking']")?.addEventListener("click", confirmBooking);
+    app.querySelector("[data-action='print-bookings']")?.addEventListener("click", () => window.print());
+
+    app.querySelectorAll("[data-open-event]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.selectedEventId = button.dataset.openEvent;
+        state.selectedSeats = [];
+        state.activeView = "bookings";
+        saveState();
+        render();
+      });
+    });
+
+    app.querySelectorAll("[data-delete-theater]").forEach((button) => {
+      button.addEventListener("click", () => deleteTheater(button.dataset.deleteTheater));
+    });
+
+    app.querySelectorAll("[data-delete-event]").forEach((button) => {
+      button.addEventListener("click", () => deleteEvent(button.dataset.deleteEvent));
+    });
+  }
+
+  function createTheater(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    state.theaters.push({
+      id: uid(),
+      name: String(form.get("name")).trim(),
+      city: String(form.get("city")).trim(),
+      rows: Number(form.get("rows")),
+      seatsPerRow: Number(form.get("seatsPerRow"))
+    });
+    saveState();
+    render();
+  }
+
+  function createEvent(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    state.events.push({
+      id: uid(),
+      title: String(form.get("title")).trim(),
+      date: String(form.get("date")),
+      theaterId: String(form.get("theaterId")),
+      maxSeatsPerUser: Number(form.get("maxSeatsPerUser")),
+      includedSeats: Number(form.get("includedSeats")),
+      includedPrice: Number(form.get("includedPrice")),
+      extraPrice: Number(form.get("extraPrice"))
+    });
+    saveState();
+    render();
+  }
+
+  function toggleSeat(code) {
+    const selected = new Set(state.selectedSeats);
+    if (selected.has(code)) {
+      selected.delete(code);
+    } else {
+      selected.add(code);
+    }
+    state.selectedSeats = [...selected].sort(sortSeats);
+    render();
+  }
+
+  function confirmBooking() {
+    const eventItem = eventById(state.selectedEventId);
+    if (!eventItem || !state.selectedSeats.length) return;
+    const userSeats = userSeatsForEvent(eventItem.id, state.currentUserId);
+    if (userSeats.length + state.selectedSeats.length > Number(eventItem.maxSeatsPerUser)) {
+      alert("La selezione supera il massimo posti per utente.");
+      return;
+    }
+    state.bookings.push({
+      id: uid(),
+      userId: state.currentUserId,
+      eventId: eventItem.id,
+      seats: [...state.selectedSeats],
+      total: bookingTotalForAdditional(eventItem, userSeats.length, state.selectedSeats.length),
+      paidAt: new Date().toISOString()
+    });
+    state.selectedSeats = [];
+    state.activeView = "my";
+    saveState();
+    render();
+  }
+
+  function deleteTheater(id) {
+    if (state.events.some((event) => event.theaterId === id)) return;
+    state.theaters = state.theaters.filter((theater) => theater.id !== id);
+    saveState();
+    render();
+  }
+
+  function deleteEvent(id) {
+    state.events = state.events.filter((event) => event.id !== id);
+    state.bookings = state.bookings.filter((booking) => booking.eventId !== id);
+    if (state.selectedEventId === id) state.selectedEventId = state.events[0]?.id || null;
+    state.selectedSeats = [];
+    saveState();
+    render();
+  }
+
+  function sortSeats(a, b) {
+    const [aRow, aSeat] = a.split("-").map(Number);
+    const [bRow, bSeat] = b.split("-").map(Number);
+    return aRow - bRow || aSeat - bSeat;
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  render();
+})();

@@ -8,6 +8,7 @@
     activeView: "bookings",
     selectedEventId: null,
     editingTheaterId: null,
+    showNewTheaterForm: false,
     selectedSeats: [],
     users: [
       {
@@ -389,9 +390,13 @@
           <h1>Teatri</h1>
           <p>Crea sale con matrice fila/posto e controlla la visualizzazione grafica.</p>
         </div>
+        <button data-action="new-theater">Nuovo teatro</button>
       </div>
+      <section class="list">${theaterOptions || `<div class="empty">Nessun teatro disponibile.</div>`}</section>
       <section class="grid">
-        <form class="panel" data-form="theater">
+        ${
+          state.showNewTheaterForm
+            ? `<form class="panel" data-form="theater">
           <h2>Nuovo teatro</h2>
           <div class="form-grid">
             <label class="full">Nome teatro<input name="name" required placeholder="Es. Teatro Civico" /></label>
@@ -403,15 +408,19 @@ C:14</textarea></label>
 B:10</textarea></label>
             <label class="full">Piantina teatro<input name="floorPlanImage" type="file" accept="image/*" /></label>
           </div>
-          <button type="submit">Crea teatro</button>
-        </form>
-        <div class="panel">
+          <div class="actions">
+            <button type="submit">Crea teatro</button>
+            <button type="button" class="secondary" data-action="cancel-new-theater">Annulla</button>
+          </div>
+        </form>`
+            : ""
+        }
+        <div class="panel ${editingTheater ? "" : "hidden"}">
           <h2>Anteprima posti</h2>
           ${preview}
         </div>
         ${editingTheater ? renderTheaterEditPanel(editingTheater) : ""}
       </section>
-      <section class="list">${theaterOptions || `<div class="empty">Nessun teatro disponibile.</div>`}</section>
     `;
   }
 
@@ -901,8 +910,20 @@ B:10</textarea></label>
     app.querySelectorAll("[data-edit-theater]").forEach((button) => {
       button.addEventListener("click", () => {
         state.editingTheaterId = button.dataset.editTheater;
+        state.showNewTheaterForm = false;
         render();
       });
+    });
+
+    app.querySelector("[data-action='new-theater']")?.addEventListener("click", () => {
+      state.showNewTheaterForm = true;
+      state.editingTheaterId = null;
+      render();
+    });
+
+    app.querySelector("[data-action='cancel-new-theater']")?.addEventListener("click", () => {
+      state.showNewTheaterForm = false;
+      render();
     });
 
     app.querySelector("[data-action='cancel-theater-edit']")?.addEventListener("click", () => {
@@ -955,6 +976,7 @@ B:10</textarea></label>
       sections,
       floorPlanImage: floorPlanFile instanceof File && floorPlanFile.size ? await readImageFile(floorPlanFile) : ""
     });
+    state.showNewTheaterForm = false;
     saveState();
     render();
   }

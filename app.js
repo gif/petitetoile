@@ -22,7 +22,8 @@
         name: "Teatro Etoile",
         city: "Milano",
         rows: 8,
-        seatsPerRow: 12
+        seatsPerRow: 12,
+        floorPlanImage: ""
       }
     ],
     events: [],
@@ -254,6 +255,7 @@
             <label>Città<input name="city" required placeholder="Es. Roma" /></label>
             <label>File<input name="rows" type="number" min="1" max="40" value="10" required /></label>
             <label>Posti per fila<input name="seatsPerRow" type="number" min="1" max="60" value="14" required /></label>
+            <label class="full">Piantina teatro<input name="floorPlanImage" type="file" accept="image/*" /></label>
           </div>
           <button type="submit">Crea teatro</button>
         </form>
@@ -277,8 +279,24 @@
           <span>${theater.rows} file</span>
           <span>${theater.seatsPerRow} posti/fila</span>
           <span>${seats} posti totali</span>
+          <span>${theater.floorPlanImage ? "Piantina caricata" : "Senza piantina"}</span>
         </div>
+        ${
+          theater.floorPlanImage
+            ? `<img class="floorplan-thumb" src="${theater.floorPlanImage}" alt="Piantina ${escapeHtml(theater.name)}" />`
+            : ""
+        }
         <div class="actions">
+          <label class="upload-button">
+            Aggiorna piantina
+            <input data-floorplan-upload="${theater.id}" type="file" accept="image/*" />
+          </label>
+          ${
+            theater.floorPlanImage
+              ? `<button class="secondary" data-open-floorplan="${theater.id}">Visualizza</button>
+                 <button class="danger" data-remove-floorplan="${theater.id}">Rimuovi piantina</button>`
+              : ""
+          }
           <button class="danger" data-delete-theater="${theater.id}" ${usedByEvents ? "disabled" : ""}>Elimina</button>
           ${usedByEvents ? `<span class="badge">Associato a eventi</span>` : ""}
         </div>
@@ -381,6 +399,7 @@
                   Hai superato il massimo configurato per questo evento.
                 </div>
                 <div class="actions">
+                  <button class="secondary" data-open-floorplan="${theater.id}" ${theater.floorPlanImage ? "" : "disabled"}>Apri piantina</button>
                   <button data-action="confirm-booking" ${state.selectedSeats.length && nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "" : "disabled"}>Paga e prenota</button>
                   <button class="secondary" data-action="clear-selection">Annulla selezione</button>
                 </div>
@@ -417,6 +436,7 @@
 
   function renderMyBookings() {
     const bookings = state.bookings.filter((booking) => booking.userId === state.currentUserId);
+    const user = currentUser();
     return `
       <div class="topbar">
         <div>
@@ -427,6 +447,10 @@
       </div>
       <section class="panel printable">
         <h2>Prenotazioni confermate</h2>
+        <div class="summary">
+          <div class="summary-row"><span>Utente</span><strong>${escapeHtml(user.name)}</strong></div>
+          <div class="summary-row"><span>Email</span><strong>${escapeHtml(user.email)}</strong></div>
+        </div>
         <div class="list">
           ${
             bookings
@@ -623,20 +647,34 @@
       button.addEventListener("click", () => deleteEvent(button.dataset.deleteEvent));
     });
 
+    app.querySelectorAll("[data-floorplan-upload]").forEach((input) => {
+      input.addEventListener("change", () => updateFloorPlan(input.dataset.floorplanUpload, input.files?.[0]));
+    });
+
+    app.querySelectorAll("[data-open-floorplan]").forEach((button) => {
+      button.addEventListener("click", () => openFloorPlan(button.dataset.openFloorplan));
+    });
+
+    app.querySelectorAll("[data-remove-floorplan]").forEach((button) => {
+      button.addEventListener("click", () => removeFloorPlan(button.dataset.removeFloorplan));
+    });
+
     app.querySelectorAll("[data-delete-user]").forEach((button) => {
       button.addEventListener("click", () => deleteUser(button.dataset.deleteUser));
     });
   }
 
-  function createTheater(event) {
+  async function createTheater(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const floorPlanFile = form.get("floorPlanImage");
     state.theaters.push({
       id: uid(),
       name: String(form.get("name")).trim(),
       city: String(form.get("city")).trim(),
       rows: Number(form.get("rows")),
-      seatsPerRow: Number(form.get("seatsPerRow"))
+      seatsPerRow: Number(form.get("seatsPerRow")),
+      floorPlanImage: floorPlanFile instanceof File && floorPlanFile.size ? await readImageFile(floorPlanFile) : ""
     });
     saveState();
     render();
@@ -780,6 +818,46 @@
     render();
   }
 
+  async function updateFloorPlan(theaterId, file) {
+    const theater = theaterById(theaterId);
+    if (!theater || !file) return;
+    theater.floorPlanImage = await readImageFile(file);
+    saveState();
+    render();
+  }
+
+  function removeFloorPlan(theaterId) {
+    const theater = theaterById(theaterId);
+    if (!theater) return;
+    theater.floorPlanImage = "";
+    saveState();
+    render();
+  }
+
+  function openFloorPlan(theaterId) {
+    const theater = theaterById(theaterId);
+    if (!theater?.floorPlanImage) return;
+
+    const modal = document.createElement("div");
+    modal.className = "modal-backdrop";
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Piantina teatro">
+        <div class="modal-head">
+          <h2>Piantina ${escapeHtml(theater.name)}</h2>
+          <button class="secondary" data-close-modal>Chiudi</button>
+        </div>
+        <img class="floorplan-full" src="${theater.floorPlanImage}" alt="Piantina ${escapeHtml(theater.name)}" />
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector("[data-close-modal]").addEventListener("click", close);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) close();
+    });
+  }
+
   function deleteEvent(id) {
     state.events = state.events.filter((event) => event.id !== id);
     state.bookings = state.bookings.filter((booking) => booking.eventId !== id);
@@ -787,6 +865,23 @@
     state.selectedSeats = [];
     saveState();
     render();
+  }
+
+  function readImageFile(file) {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith("image/")) {
+        reject(new Error("Il file selezionato non e un'immagine."));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result)));
+      reader.addEventListener("error", () => reject(reader.error));
+      reader.readAsDataURL(file);
+    }).catch((error) => {
+      alert(error.message || "Impossibile caricare l'immagine.");
+      return "";
+    });
   }
 
   function sortSeats(a, b) {

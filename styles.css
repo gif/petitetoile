@@ -74,6 +74,27 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.upload-button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  min-height: 40px;
+  padding: 0 14px;
+  cursor: pointer;
+  font-weight: 650;
+  display: inline-grid;
+  place-items: center;
+}
+
+.upload-button:hover {
+  background: var(--soft);
+}
+
+.upload-button input {
+  display: none;
+}
+
 input,
 select {
   width: 100%;
@@ -358,6 +379,58 @@ label {
   text-align: center;
 }
 
+.floorplan-thumb {
+  width: min(280px, 100%);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(23, 32, 27, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal {
+  width: min(980px, 100%);
+  max-height: min(860px, 92vh);
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.32);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.floorplan-full {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  object-fit: contain;
+  background: #f8faf8;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -527,6 +600,15 @@ label {
 
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  .modal-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

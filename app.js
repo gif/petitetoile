@@ -381,8 +381,8 @@
 
   function renderTheaters() {
     const theaterOptions = state.theaters.map((theater) => theaterCard(theater)).join("");
-    const preview = state.theaters[0] ? renderSeatMap(state.theaters[0], null, []) : `<div class="empty">Crea il primo teatro.</div>`;
     const editingTheater = state.theaters.find((theater) => theater.id === state.editingTheaterId) || null;
+    const preview = editingTheater ? renderSeatMap(editingTheater, null, []) : `<div class="empty">Seleziona Modifica su un teatro per vedere l'anteprima posti.</div>`;
     return `
       <div class="topbar">
         <div>

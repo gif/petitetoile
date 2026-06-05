@@ -6,6 +6,7 @@
     authMode: "login",
     activeView: "bookings",
     selectedEventId: null,
+    editingTheaterId: null,
     selectedSeats: [],
     users: [
       {
@@ -240,6 +241,7 @@
   function renderTheaters() {
     const theaterOptions = state.theaters.map((theater) => theaterCard(theater)).join("");
     const preview = state.theaters[0] ? renderSeatMap(state.theaters[0], null, []) : `<div class="empty">Crea il primo teatro.</div>`;
+    const editingTheater = state.theaters.find((theater) => theater.id === state.editingTheaterId) || null;
     return `
       <div class="topbar">
         <div>
@@ -263,8 +265,32 @@
           <h2>Anteprima posti</h2>
           ${preview}
         </div>
+        ${editingTheater ? renderTheaterEditPanel(editingTheater) : ""}
       </section>
       <section class="list">${theaterOptions || `<div class="empty">Nessun teatro disponibile.</div>`}</section>
+    `;
+  }
+
+  function renderTheaterEditPanel(theater) {
+    const usedByEvents = state.events.some((event) => event.theaterId === theater.id);
+    return `
+      <form class="panel theater-edit-panel" data-form="theater-edit" data-theater-id="${theater.id}">
+        <h2>Modifica teatro</h2>
+        <div class="form-grid">
+          <label class="full">Nome teatro<input name="name" required value="${escapeHtml(theater.name)}" /></label>
+          <label>Citta<input name="city" required value="${escapeHtml(theater.city)}" /></label>
+          <label>File<input name="rows" type="number" min="1" max="40" value="${escapeHtml(theater.rows)}" required ${usedByEvents ? "readonly" : ""} /></label>
+          <label>Posti per fila<input name="seatsPerRow" type="number" min="1" max="60" value="${escapeHtml(theater.seatsPerRow)}" required ${usedByEvents ? "readonly" : ""} /></label>
+          <label class="full">Carica nuova piantina<input name="floorPlanImage" type="file" accept="image/*" /></label>
+        </div>
+        ${usedByEvents ? `<div class="notice">File e posti per fila non sono modificabili per teatri già associati a eventi.</div>` : ""}
+        ${theater.floorPlanImage ? `<img class="floorplan-thumb" src="${theater.floorPlanImage}" alt="Piantina ${escapeHtml(theater.name)}" />` : ""}
+        <div class="actions">
+          <button type="submit">Salva modifiche</button>
+          <button type="button" class="secondary" data-action="cancel-theater-edit">Annulla</button>
+          ${theater.floorPlanImage ? `<button type="button" class="danger" data-remove-floorplan="${theater.id}">Rimuovi piantina</button>` : ""}
+        </div>
+      </form>
     `;
   }
 
@@ -287,8 +313,9 @@
             : ""
         }
         <div class="actions">
+          <button class="secondary" data-edit-theater="${theater.id}">Modifica</button>
           <label class="upload-button">
-            Aggiorna piantina
+            Carica piantina
             <input data-floorplan-upload="${theater.id}" type="file" accept="image/*" />
           </label>
           ${
@@ -601,6 +628,7 @@
     });
 
     app.querySelector("[data-form='theater']")?.addEventListener("submit", createTheater);
+    app.querySelector("[data-form='theater-edit']")?.addEventListener("submit", updateTheater);
     app.querySelector("[data-form='event']")?.addEventListener("submit", createEvent);
     app.querySelector("[data-form='password']")?.addEventListener("submit", changePassword);
     app.querySelector("[data-form='admin-user']")?.addEventListener("submit", createUserByAdmin);
@@ -643,6 +671,18 @@
       button.addEventListener("click", () => deleteTheater(button.dataset.deleteTheater));
     });
 
+    app.querySelectorAll("[data-edit-theater]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.editingTheaterId = button.dataset.editTheater;
+        render();
+      });
+    });
+
+    app.querySelector("[data-action='cancel-theater-edit']")?.addEventListener("click", () => {
+      state.editingTheaterId = null;
+      render();
+    });
+
     app.querySelectorAll("[data-delete-event]").forEach((button) => {
       button.addEventListener("click", () => deleteEvent(button.dataset.deleteEvent));
     });
@@ -676,6 +716,30 @@
       seatsPerRow: Number(form.get("seatsPerRow")),
       floorPlanImage: floorPlanFile instanceof File && floorPlanFile.size ? await readImageFile(floorPlanFile) : ""
     });
+    saveState();
+    render();
+  }
+
+  async function updateTheater(event) {
+    event.preventDefault();
+    const theater = theaterById(event.currentTarget.dataset.theaterId);
+    if (!theater) return;
+
+    const form = new FormData(event.currentTarget);
+    const usedByEvents = state.events.some((item) => item.theaterId === theater.id);
+    const floorPlanFile = form.get("floorPlanImage");
+
+    theater.name = String(form.get("name")).trim();
+    theater.city = String(form.get("city")).trim();
+    if (!usedByEvents) {
+      theater.rows = Number(form.get("rows"));
+      theater.seatsPerRow = Number(form.get("seatsPerRow"));
+    }
+    if (floorPlanFile instanceof File && floorPlanFile.size) {
+      theater.floorPlanImage = await readImageFile(floorPlanFile);
+    }
+
+    state.editingTheaterId = null;
     saveState();
     render();
   }
@@ -814,6 +878,7 @@
   function deleteTheater(id) {
     if (state.events.some((event) => event.theaterId === id)) return;
     state.theaters = state.theaters.filter((theater) => theater.id !== id);
+    if (state.editingTheaterId === id) state.editingTheaterId = null;
     saveState();
     render();
   }

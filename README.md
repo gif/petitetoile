@@ -22,6 +22,7 @@ I dati vengono salvati nel `localStorage` del browser.
 ## Funzioni
 
 - Creazione teatri con matrice file/posti.
+- Configurazione file con posti variabili per Platea e Galleria usando righe nel formato `A:12`.
 - Visualizzazione grafica della sala.
 - Creazione eventi e associazione evento/teatro.
 - Registrazione utenti con email e password.

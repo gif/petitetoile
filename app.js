@@ -2,6 +2,7 @@
   const STORAGE_KEY = "prenotazioni-etoile-v1";
 
   const initialState = {
+    schemaVersion: 2,
     currentUserId: null,
     authMode: "login",
     activeView: "bookings",
@@ -22,8 +23,26 @@
         id: uid(),
         name: "Teatro Etoile",
         city: "Milano",
-        rows: 8,
-        seatsPerRow: 12,
+        sections: [
+          {
+            id: "platea",
+            name: "Platea",
+            rows: [
+              { id: "p-a", label: "A", seats: 10 },
+              { id: "p-b", label: "B", seats: 12 },
+              { id: "p-c", label: "C", seats: 14 },
+              { id: "p-d", label: "D", seats: 14 }
+            ]
+          },
+          {
+            id: "galleria",
+            name: "Galleria",
+            rows: [
+              { id: "g-a", label: "A", seats: 8 },
+              { id: "g-b", label: "B", seats: 10 }
+            ]
+          }
+        ],
         floorPlanImage: ""
       }
     ],
@@ -44,6 +63,7 @@
   });
 
   let state = loadState();
+  saveState();
   const app = document.getElementById("app");
 
   function uid() {
@@ -58,6 +78,9 @@
       return {
         ...structuredClone(initialState),
         ...parsed,
+        theaters: (parsed.theaters || []).map(normalizeTheater),
+        bookings: Number(parsed.schemaVersion || 1) < 2 ? [] : parsed.bookings || [],
+        schemaVersion: 2,
         selectedSeats: []
       };
     } catch {
@@ -89,6 +112,29 @@
 
   function eventById(id) {
     return state.events.find((event) => event.id === id);
+  }
+
+  function normalizeTheater(theater) {
+    if (Array.isArray(theater.sections)) return theater;
+    return {
+      ...theater,
+      sections: [
+        {
+          id: "platea",
+          name: "Platea",
+          rows: Array.from({ length: Number(theater.rows || 0) }, (_, index) => ({
+            id: `p-${index + 1}`,
+            label: String(index + 1),
+            seats: Number(theater.seatsPerRow || 0)
+          }))
+        },
+        {
+          id: "galleria",
+          name: "Galleria",
+          rows: []
+        }
+      ]
+    };
   }
 
   function userById(id) {
@@ -126,18 +172,68 @@
   }
 
   function seatsForTheater(theater) {
-    const seats = [];
-    for (let row = 1; row <= Number(theater.rows); row += 1) {
-      for (let seat = 1; seat <= Number(theater.seatsPerRow); seat += 1) {
-        seats.push(`${row}-${seat}`);
-      }
-    }
-    return seats;
+    return theater.sections.flatMap((section) =>
+      section.rows.flatMap((row) =>
+        Array.from({ length: Number(row.seats) }, (_, index) => seatCode(section.id, row.id, index + 1))
+      )
+    );
   }
 
-  function seatLabel(code) {
-    const [row, seat] = code.split("-");
-    return `Fila ${row}, posto ${seat}`;
+  function seatCode(sectionId, rowId, seatNumber) {
+    return `${sectionId}__${rowId}__${seatNumber}`;
+  }
+
+  function seatLabel(code, theater = null) {
+    const [sectionId, rowId, seat] = code.split("__");
+    if (!seat) {
+      const [row, oldSeat] = code.split("-");
+      return `Fila ${row}, posto ${oldSeat}`;
+    }
+
+    const section = theater?.sections?.find((item) => item.id === sectionId);
+    const row = section?.rows?.find((item) => item.id === rowId);
+    return `${section?.name || sectionId}, fila ${row?.label || rowId}, posto ${seat}`;
+  }
+
+  function theaterCapacity(theater) {
+    return seatsForTheater(theater).length;
+  }
+
+  function sectionRowsToText(section) {
+    return section?.rows.map((row) => `${row.label}:${row.seats}`).join("\n") || "";
+  }
+
+  function parseSectionRows(value, prefix) {
+    return String(value)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, index) => {
+        const [labelPart, seatsPart] = line.includes(":") ? line.split(":") : [String(index + 1), line];
+        const label = labelPart.trim() || String(index + 1);
+        const seats = Math.max(0, Number(String(seatsPart).trim()));
+        return {
+          id: `${prefix}-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index + 1}`,
+          label,
+          seats
+        };
+      })
+      .filter((row) => row.seats > 0);
+  }
+
+  function theaterSectionsFromForm(form) {
+    return [
+      {
+        id: "platea",
+        name: "Platea",
+        rows: parseSectionRows(form.get("plateaRows"), "p")
+      },
+      {
+        id: "galleria",
+        name: "Galleria",
+        rows: parseSectionRows(form.get("galleriaRows"), "g")
+      }
+    ];
   }
 
   function reservedSeats(eventId) {
@@ -300,8 +396,11 @@
           <div class="form-grid">
             <label class="full">Nome teatro<input name="name" required placeholder="Es. Teatro Civico" /></label>
             <label>Città<input name="city" required placeholder="Es. Roma" /></label>
-            <label>File<input name="rows" type="number" min="1" max="40" value="10" required /></label>
-            <label>Posti per fila<input name="seatsPerRow" type="number" min="1" max="60" value="14" required /></label>
+            <label class="full">File Platea<textarea name="plateaRows" required rows="5">A:10
+B:12
+C:14</textarea></label>
+            <label class="full">File Galleria<textarea name="galleriaRows" rows="4">A:8
+B:10</textarea></label>
             <label class="full">Piantina teatro<input name="floorPlanImage" type="file" accept="image/*" /></label>
           </div>
           <button type="submit">Crea teatro</button>
@@ -318,17 +417,19 @@
 
   function renderTheaterEditPanel(theater) {
     const usedByEvents = state.events.some((event) => event.theaterId === theater.id);
+    const platea = theater.sections.find((section) => section.id === "platea");
+    const galleria = theater.sections.find((section) => section.id === "galleria");
     return `
       <form class="panel theater-edit-panel" data-form="theater-edit" data-theater-id="${theater.id}">
         <h2>Modifica teatro</h2>
         <div class="form-grid">
           <label class="full">Nome teatro<input name="name" required value="${escapeHtml(theater.name)}" /></label>
           <label>Citta<input name="city" required value="${escapeHtml(theater.city)}" /></label>
-          <label>File<input name="rows" type="number" min="1" max="40" value="${escapeHtml(theater.rows)}" required ${usedByEvents ? "readonly" : ""} /></label>
-          <label>Posti per fila<input name="seatsPerRow" type="number" min="1" max="60" value="${escapeHtml(theater.seatsPerRow)}" required ${usedByEvents ? "readonly" : ""} /></label>
+          <label class="full">File Platea<textarea name="plateaRows" required rows="5" ${usedByEvents ? "readonly" : ""}>${escapeHtml(sectionRowsToText(platea))}</textarea></label>
+          <label class="full">File Galleria<textarea name="galleriaRows" rows="4" ${usedByEvents ? "readonly" : ""}>${escapeHtml(sectionRowsToText(galleria))}</textarea></label>
           <label class="full">Carica nuova piantina<input name="floorPlanImage" type="file" accept="image/*" /></label>
         </div>
-        ${usedByEvents ? `<div class="notice">File e posti per fila non sono modificabili per teatri già associati a eventi.</div>` : ""}
+        ${usedByEvents ? `<div class="notice">La struttura dei posti non è modificabile per teatri già associati a eventi.</div>` : ""}
         ${theater.floorPlanImage ? `<img class="floorplan-thumb" src="${theater.floorPlanImage}" alt="Piantina ${escapeHtml(theater.name)}" />` : ""}
         <div class="actions">
           <button type="submit">Salva modifiche</button>
@@ -340,15 +441,17 @@
   }
 
   function theaterCard(theater) {
-    const seats = Number(theater.rows) * Number(theater.seatsPerRow);
+    const seats = theaterCapacity(theater);
+    const sectionSummary = theater.sections
+      .map((section) => `${section.name}: ${section.rows.length} file`)
+      .join(" · ");
     const usedByEvents = state.events.some((event) => event.theaterId === theater.id);
     return `
       <article class="card">
         <h3>${escapeHtml(theater.name)}</h3>
         <div class="meta">
           <span>${escapeHtml(theater.city)}</span>
-          <span>${theater.rows} file</span>
-          <span>${theater.seatsPerRow} posti/fila</span>
+          <span>${sectionSummary}</span>
           <span>${seats} posti totali</span>
           <span>${theater.floorPlanImage ? "Piantina caricata" : "Senza piantina"}</span>
         </div>
@@ -410,7 +513,7 @@
   function eventCard(eventItem) {
     const theater = theaterById(eventItem.theaterId);
     const reserved = reservedSeats(eventItem.id).length;
-    const capacity = theater ? Number(theater.rows) * Number(theater.seatsPerRow) : 0;
+    const capacity = theater ? theaterCapacity(theater) : 0;
     return `
       <article class="card">
         <h3>${escapeHtml(eventItem.title)}</h3>
@@ -494,20 +597,25 @@
   function renderSeatMap(theater, eventItem, selectedSeats) {
     const taken = eventItem ? reservedSeats(eventItem.id) : [];
     const mine = eventItem ? userSeatsForEvent(eventItem.id, state.currentUserId) : [];
-    let rows = "";
-    for (let row = 1; row <= Number(theater.rows); row += 1) {
-      let seats = "";
-      for (let seat = 1; seat <= Number(theater.seatsPerRow); seat += 1) {
-        const code = `${row}-${seat}`;
-        const isTaken = taken.includes(code);
-        const isMine = mine.includes(code);
-        const isSelected = selectedSeats.includes(code);
-        const classes = ["seat", isTaken ? "taken" : "", isMine ? "mine" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
-        seats += `<button class="${classes}" data-seat="${code}" ${isTaken || !eventItem ? "disabled" : ""} title="${seatLabel(code)}">${seat}</button>`;
-      }
-      rows += `<div class="seat-row" style="--cols:${theater.seatsPerRow}"><span class="row-label">F${row}</span>${seats}</div>`;
-    }
-    return `<div class="stage">Palco</div><div class="seat-map-wrap"><div class="seat-map">${rows}</div></div>`;
+    const sections = theater.sections
+      .map((section) => {
+        const rows = section.rows
+          .map((row) => {
+            const seats = Array.from({ length: Number(row.seats) }, (_, index) => {
+              const code = seatCode(section.id, row.id, index + 1);
+              const isTaken = taken.includes(code);
+              const isMine = mine.includes(code);
+              const isSelected = selectedSeats.includes(code);
+              const classes = ["seat", isTaken ? "taken" : "", isMine ? "mine" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
+              return `<button class="${classes}" data-seat="${code}" ${isTaken || !eventItem ? "disabled" : ""} title="${seatLabel(code, theater)}">${index + 1}</button>`;
+            }).join("");
+            return `<div class="seat-row" style="--cols:${row.seats}"><span class="row-label">${escapeHtml(row.label)}</span>${seats}</div>`;
+          })
+          .join("");
+        return `<section class="seat-section"><h3>${escapeHtml(section.name)}</h3>${rows || `<div class="empty">Nessuna fila configurata.</div>`}</section>`;
+      })
+      .join("");
+    return `<div class="stage">Palco</div><div class="seat-map-wrap"><div class="seat-map">${sections}</div></div>`;
   }
 
   function renderMyBookings() {
@@ -544,7 +652,7 @@
                       <span>${money(booking.total)}</span>
                       <span>${status === "approved" ? "Approvata" : `In attesa fino al ${formatDateTime(bookingExpiresAt(booking))}`}</span>
                     </div>
-                    <div>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat)}</span>`).join(" ")}</div>
+                    <div>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat, theater)}</span>`).join(" ")}</div>
                   </article>
                 `;
               })
@@ -678,7 +786,7 @@
               <strong>${eventItem ? escapeHtml(eventItem.title) : "Evento eliminato"}</strong>
               <span>${eventItem ? escapeHtml(eventItem.date) : ""}${theater ? ` · ${escapeHtml(theater.name)}` : ""}</span>
             </td>
-            <td>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat)}</span>`).join(" ")}</td>
+            <td>${booking.seats.map((seat) => `<span class="badge">${seatLabel(seat, theater)}</span>`).join(" ")}</td>
             <td>${money(booking.total)}</td>
             <td>
               <span class="badge ${status === "approved" ? "ok" : "warn"}">${status === "approved" ? "Approvata" : "In attesa"}</span>
@@ -835,12 +943,16 @@
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const floorPlanFile = form.get("floorPlanImage");
+    const sections = theaterSectionsFromForm(form);
+    if (!sections.some((section) => section.rows.length)) {
+      alert("Inserisci almeno una fila con posti in Platea o Galleria.");
+      return;
+    }
     state.theaters.push({
       id: uid(),
       name: String(form.get("name")).trim(),
       city: String(form.get("city")).trim(),
-      rows: Number(form.get("rows")),
-      seatsPerRow: Number(form.get("seatsPerRow")),
+      sections,
       floorPlanImage: floorPlanFile instanceof File && floorPlanFile.size ? await readImageFile(floorPlanFile) : ""
     });
     saveState();
@@ -859,8 +971,12 @@
     theater.name = String(form.get("name")).trim();
     theater.city = String(form.get("city")).trim();
     if (!usedByEvents) {
-      theater.rows = Number(form.get("rows"));
-      theater.seatsPerRow = Number(form.get("seatsPerRow"));
+      const sections = theaterSectionsFromForm(form);
+      if (!sections.some((section) => section.rows.length)) {
+        alert("Inserisci almeno una fila con posti in Platea o Galleria.");
+        return;
+      }
+      theater.sections = sections;
     }
     if (floorPlanFile instanceof File && floorPlanFile.size) {
       theater.floorPlanImage = await readImageFile(floorPlanFile);

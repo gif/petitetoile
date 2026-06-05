@@ -30,7 +30,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -96,14 +97,20 @@ button:disabled {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
   min-height: 40px;
-  padding: 0 10px;
+  padding: 10px;
   color: var(--ink);
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.35;
 }
 
 label {
@@ -322,9 +329,21 @@ label.upload-button {
 
 .seat-map {
   display: grid;
-  gap: 7px;
+  gap: 18px;
   width: max-content;
   min-width: 100%;
+}
+
+.seat-section {
+  display: grid;
+  gap: 7px;
+}
+
+.seat-section h3 {
+  margin: 0 0 2px 41px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
 }
 
 .seat-row {

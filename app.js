@@ -133,8 +133,10 @@
           <nav class="nav">
             ${navButton("bookings", "Prenotazioni")}
             ${navButton("my", "I miei posti")}
+            ${navButton("account", "Account")}
             ${user.role === "admin" ? navButton("theaters", "Teatri") : ""}
             ${user.role === "admin" ? navButton("events", "Eventi") : ""}
+            ${user.role === "admin" ? navButton("users", "Utenti") : ""}
           </nav>
           <div></div>
           <div class="user-panel">
@@ -159,6 +161,8 @@
     if (state.activeView === "theaters") return renderTheaters();
     if (state.activeView === "events") return renderEvents();
     if (state.activeView === "my") return renderMyBookings();
+    if (state.activeView === "account") return renderAccount();
+    if (state.activeView === "users" && currentUser()?.role === "admin") return renderUsers();
     return renderBookings();
   }
 
@@ -449,6 +453,112 @@
     `;
   }
 
+  function renderAccount() {
+    const user = currentUser();
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Account</h1>
+          <p>Gestisci la password del tuo profilo.</p>
+        </div>
+      </div>
+      <section class="grid">
+        <form class="panel" data-form="password">
+          <h2>Cambia password</h2>
+          <div class="summary">
+            <div class="summary-row"><span>Nome</span><strong>${escapeHtml(user.name)}</strong></div>
+            <div class="summary-row"><span>Email</span><strong>${escapeHtml(user.email)}</strong></div>
+            <div class="summary-row"><span>Ruolo</span><strong>${user.role === "admin" ? "Amministratore" : "Utente"}</strong></div>
+          </div>
+          <label>Password attuale<input name="currentPassword" type="password" required autocomplete="current-password" /></label>
+          <label>Nuova password<input name="newPassword" type="password" minlength="6" required autocomplete="new-password" /></label>
+          <label>Conferma nuova password<input name="confirmPassword" type="password" minlength="6" required autocomplete="new-password" /></label>
+          <button type="submit">Aggiorna password</button>
+        </form>
+        <div class="panel">
+          <h2>Sicurezza</h2>
+          <div class="notice">Le credenziali sono salvate nel browser, coerentemente con la scelta senza database server.</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderUsers() {
+    const rows = state.users
+      .map((user) => {
+        const bookingCount = state.bookings.filter((booking) => booking.userId === user.id).length;
+        const isCurrent = user.id === state.currentUserId;
+        return `
+          <tr>
+            <td>
+              <strong>${escapeHtml(user.name)}</strong>
+              <span>${escapeHtml(user.email)}</span>
+            </td>
+            <td>
+              <select data-user-role="${user.id}" ${isCurrent ? "disabled" : ""}>
+                <option value="user" ${user.role === "user" ? "selected" : ""}>Utente</option>
+                <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+              </select>
+            </td>
+            <td>${bookingCount}</td>
+            <td>
+              <form class="inline-form" data-form="admin-password" data-user-id="${user.id}">
+                <input name="password" type="password" minlength="6" required placeholder="Nuova password" autocomplete="new-password" />
+                <button type="submit" class="secondary">Reset</button>
+              </form>
+            </td>
+            <td>
+              <button class="danger" data-delete-user="${user.id}" ${isCurrent ? "disabled" : ""}>Elimina</button>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    return `
+      <div class="topbar">
+        <div>
+          <h1>Utenti</h1>
+          <p>Crea account, assegna ruoli e resetta le password.</p>
+        </div>
+      </div>
+      <section class="grid">
+        <form class="panel" data-form="admin-user">
+          <h2>Nuovo utente</h2>
+          <div class="form-grid">
+            <label class="full">Nome<input name="name" required autocomplete="name" /></label>
+            <label class="full">Email<input name="email" type="email" required autocomplete="email" /></label>
+            <label>Password<input name="password" type="password" minlength="6" required autocomplete="new-password" /></label>
+            <label>Ruolo
+              <select name="role" required>
+                <option value="user">Utente</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit">Crea utente</button>
+        </form>
+        <div class="panel">
+          <h2>Account registrati</h2>
+          <div class="table-wrap">
+            <table class="user-table">
+              <thead>
+                <tr>
+                  <th>Utente</th>
+                  <th>Ruolo</th>
+                  <th>Prenotazioni</th>
+                  <th>Password</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function bindCommon() {
     app.querySelectorAll("[data-view]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -468,6 +578,14 @@
 
     app.querySelector("[data-form='theater']")?.addEventListener("submit", createTheater);
     app.querySelector("[data-form='event']")?.addEventListener("submit", createEvent);
+    app.querySelector("[data-form='password']")?.addEventListener("submit", changePassword);
+    app.querySelector("[data-form='admin-user']")?.addEventListener("submit", createUserByAdmin);
+    app.querySelectorAll("[data-form='admin-password']").forEach((form) => {
+      form.addEventListener("submit", resetUserPassword);
+    });
+    app.querySelectorAll("[data-user-role]").forEach((select) => {
+      select.addEventListener("change", () => updateUserRole(select.dataset.userRole, select.value));
+    });
     app.querySelector("[data-event-picker]")?.addEventListener("change", (event) => {
       state.selectedEventId = event.target.value;
       state.selectedSeats = [];
@@ -504,6 +622,10 @@
     app.querySelectorAll("[data-delete-event]").forEach((button) => {
       button.addEventListener("click", () => deleteEvent(button.dataset.deleteEvent));
     });
+
+    app.querySelectorAll("[data-delete-user]").forEach((button) => {
+      button.addEventListener("click", () => deleteUser(button.dataset.deleteUser));
+    });
   }
 
   function createTheater(event) {
@@ -533,6 +655,87 @@
       includedPrice: Number(form.get("includedPrice")),
       extraPrice: Number(form.get("extraPrice"))
     });
+    saveState();
+    render();
+  }
+
+  function changePassword(event) {
+    event.preventDefault();
+    const user = currentUser();
+    const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get("currentPassword"));
+    const newPassword = String(form.get("newPassword"));
+    const confirmPassword = String(form.get("confirmPassword"));
+
+    if (user.password !== currentPassword) {
+      alert("La password attuale non e valida.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      alert("La nuova password e la conferma non coincidono.");
+      return;
+    }
+
+    user.password = newPassword;
+    saveState();
+    event.currentTarget.reset();
+    alert("Password aggiornata.");
+  }
+
+  function createUserByAdmin(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email")).trim().toLowerCase();
+
+    if (state.users.some((user) => user.email === email)) {
+      alert("Esiste gia un account con questa email.");
+      return;
+    }
+
+    state.users.push({
+      id: uid(),
+      name: String(form.get("name")).trim(),
+      email,
+      password: String(form.get("password")),
+      role: String(form.get("role")) === "admin" ? "admin" : "user"
+    });
+    saveState();
+    render();
+  }
+
+  function resetUserPassword(event) {
+    event.preventDefault();
+    const user = state.users.find((item) => item.id === event.currentTarget.dataset.userId);
+    if (!user) return;
+
+    const form = new FormData(event.currentTarget);
+    user.password = String(form.get("password"));
+    saveState();
+    event.currentTarget.reset();
+    alert(`Password aggiornata per ${user.email}.`);
+  }
+
+  function updateUserRole(userId, role) {
+    const user = state.users.find((item) => item.id === userId);
+    if (!user || user.id === state.currentUserId) return;
+    user.role = role === "admin" ? "admin" : "user";
+    saveState();
+    render();
+  }
+
+  function deleteUser(userId) {
+    if (userId === state.currentUserId) return;
+    const user = state.users.find((item) => item.id === userId);
+    if (!user) return;
+
+    const bookingCount = state.bookings.filter((booking) => booking.userId === userId).length;
+    const message = bookingCount
+      ? `Eliminare ${user.email} e le sue ${bookingCount} prenotazioni?`
+      : `Eliminare ${user.email}?`;
+    if (!confirm(message)) return;
+
+    state.users = state.users.filter((item) => item.id !== userId);
+    state.bookings = state.bookings.filter((booking) => booking.userId !== userId);
     saveState();
     render();
   }

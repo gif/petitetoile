@@ -17,7 +17,9 @@ Account demo amministratore:
 - Email: `admin@etoile.local`
 - Password: `admin123`
 
-I dati vengono salvati nel `localStorage` del browser.
+I dati vengono salvati in `data.json` quando l'app viene aperta tramite `node server.js`; il `localStorage` resta come fallback se si apre direttamente `index.html`.
+
+Per spostare dati gia presenti in un browser: apri l'app con quel browser e ricarica la pagina, cosi i dati locali vengono copiati nel file `data.json`. Gli altri browser collegati allo stesso server leggeranno poi lo stesso file.
 
 ## Funzioni
 

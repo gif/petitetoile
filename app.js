@@ -1,5 +1,7 @@
-(function () {
+(async function () {
   const STORAGE_KEY = "prenotazioni-etoile-v1";
+  const API_STATE_URL = "/api/state";
+  let saveTimer = null;
 
   const initialState = {
     schemaVersion: 2,
@@ -66,35 +68,64 @@
     posterImage: ""
   });
 
-  let state = loadState();
-  saveState();
+  let state;
   const app = document.getElementById("app");
 
   function uid() {
     return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
   }
 
-  function loadState() {
+  async function loadState() {
+    const serverState = await loadServerState();
+    if (serverState) return normalizeState(serverState);
+
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return structuredClone(initialState);
     try {
-      const parsed = JSON.parse(saved);
-      return {
-        ...structuredClone(initialState),
-        ...parsed,
-        theaters: (parsed.theaters || []).map(normalizeTheater),
-        events: (parsed.events || []).map(normalizeEvent),
-        bookings: Number(parsed.schemaVersion || 1) < 2 ? [] : parsed.bookings || [],
-        schemaVersion: 2,
-        selectedSeats: []
-      };
+      return normalizeState(JSON.parse(saved));
     } catch {
       return structuredClone(initialState);
     }
   }
 
+  async function loadServerState() {
+    try {
+      const response = await fetch(API_STATE_URL);
+      if (!response.ok || response.status === 204) return null;
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeState(parsed) {
+    return {
+      ...structuredClone(initialState),
+      ...parsed,
+      theaters: (parsed.theaters || []).map(normalizeTheater),
+      events: (parsed.events || []).map(normalizeEvent),
+      bookings: Number(parsed.schemaVersion || 1) < 2 ? [] : parsed.bookings || [],
+      schemaVersion: 2,
+      selectedSeats: []
+    };
+  }
+
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveServerState, 250);
+  }
+
+  async function saveServerState() {
+    try {
+      await fetch(API_STATE_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(portableState())
+      });
+    } catch {
+      // LocalStorage fallback remains available when the static file is opened without server APIs.
+    }
   }
 
   function portableState() {
@@ -1405,5 +1436,7 @@ B:10</textarea></label>
       .replaceAll("'", "&#039;");
   }
 
+  state = await loadState();
+  saveState();
   render();
 })();

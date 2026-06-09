@@ -1,18 +1,18 @@
 :root {
   color-scheme: light;
-  --bg: #f5f6f4;
-  --ink: #202520;
-  --muted: #667069;
-  --line: #d9ded6;
+  --bg: #f7f8fb;
+  --ink: #172033;
+  --muted: #647084;
+  --line: #d7ddea;
   --panel: #ffffff;
-  --soft: #edf1ec;
-  --accent: #0c6b58;
-  --accent-dark: #084f43;
-  --warn: #9b4d12;
-  --danger: #b83232;
-  --taken: #cfd6d1;
-  --selected: #175dcc;
-  --shadow: 0 10px 30px rgba(23, 32, 25, 0.08);
+  --soft: #eef3fb;
+  --accent: #2563eb;
+  --accent-dark: #1d4ed8;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --taken: #d9e0ea;
+  --selected: #14b8a6;
+  --shadow: 0 14px 34px rgba(15, 23, 42, 0.09);
 }
 
 * {
@@ -135,7 +135,7 @@ label.upload-button {
 }
 
 .sidebar {
-  background: #17201b;
+  background: #0f172a;
   color: #f4f7f4;
   padding: 22px 18px;
   display: grid;
@@ -187,7 +187,7 @@ label.upload-button {
 }
 
 .user-panel button {
-  background: #26332c;
+  background: #1e293b;
 }
 
 .main {
@@ -273,6 +273,21 @@ label.upload-button {
   padding: 14px;
   display: grid;
   gap: 10px;
+}
+
+.card-text {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.event-poster-thumb {
+  width: min(220px, 100%);
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
 }
 
 .meta {

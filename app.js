@@ -8,6 +8,7 @@
     activeView: "bookings",
     selectedEventId: null,
     editingTheaterId: null,
+    editingEventId: null,
     showNewTheaterForm: false,
     selectedSeats: [],
     users: [
@@ -54,13 +55,15 @@
   initialState.events.push({
     id: uid(),
     title: "Gala di danza contemporanea",
+    description: "Evento dimostrativo per testare prenotazioni, approvazioni e stampa posti.",
     date: new Date().toISOString().slice(0, 10),
     theaterId: initialState.theaters[0].id,
     maxSeatsPerUser: 6,
     includedSeats: 2,
     includedPrice: 18,
     extraPrice: 28,
-    approvalDays: 3
+    approvalDays: 3,
+    posterImage: ""
   });
 
   let state = loadState();
@@ -80,6 +83,7 @@
         ...structuredClone(initialState),
         ...parsed,
         theaters: (parsed.theaters || []).map(normalizeTheater),
+        events: (parsed.events || []).map(normalizeEvent),
         bookings: Number(parsed.schemaVersion || 1) < 2 ? [] : parsed.bookings || [],
         schemaVersion: 2,
         selectedSeats: []
@@ -91,6 +95,20 @@
 
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function portableState() {
+    return {
+      ...state,
+      selectedSeats: [],
+      currentUserId: null,
+      authMode: "login",
+      activeView: "bookings",
+      editingTheaterId: null,
+      editingEventId: null,
+      showNewTheaterForm: false,
+      exportedAt: new Date().toISOString()
+    };
   }
 
   function purgeExpiredBookings() {
@@ -135,6 +153,16 @@
           rows: []
         }
       ]
+    };
+  }
+
+  function normalizeEvent(eventItem) {
+    return {
+      description: "",
+      posterImage: "",
+      theaterId: "",
+      approvalDays: 3,
+      ...eventItem
     };
   }
 
@@ -376,6 +404,7 @@
       return;
     }
     state.currentUserId = user.id;
+    state.activeView = user.role === "admin" ? "events" : "bookings";
     saveState();
     render();
   }
@@ -489,6 +518,7 @@ B:10</textarea></label>
   }
 
   function renderEvents() {
+    const editingEvent = state.events.find((eventItem) => eventItem.id === state.editingEventId) || null;
     return `
       <div class="topbar">
         <div>
@@ -497,25 +527,38 @@ B:10</textarea></label>
         </div>
       </div>
       <section class="grid">
-        <form class="panel" data-form="event">
-          <h2>Nuovo evento</h2>
-          <div class="form-grid">
-            <label class="full">Titolo<input name="title" required placeholder="Es. Saggio classico" /></label>
-            <label>Data<input name="date" type="date" required /></label>
-            <label>Teatro<select name="theaterId" required>${theaterSelectOptions()}</select></label>
-            <label>Massimo posti per utente<input name="maxSeatsPerUser" type="number" min="1" value="6" required /></label>
-            <label>Giorni per approvazione<input name="approvalDays" type="number" min="1" value="3" required /></label>
-            <label>Posti a prezzo base<input name="includedSeats" type="number" min="0" value="2" required /></label>
-            <label>Prezzo base per posto<input name="includedPrice" type="number" min="0" step="0.01" value="18" required /></label>
-            <label>Prezzo aggiuntivo per posto<input name="extraPrice" type="number" min="0" step="0.01" value="28" required /></label>
-          </div>
-          <button type="submit" ${state.theaters.length ? "" : "disabled"}>Crea evento</button>
-        </form>
+        ${editingEvent ? renderEventForm(editingEvent) : renderEventForm()}
         <div class="panel">
           <h2>Eventi creati</h2>
           <div class="list">${state.events.map(eventCard).join("") || `<div class="empty">Nessun evento disponibile.</div>`}</div>
         </div>
       </section>
+    `;
+  }
+
+  function renderEventForm(eventItem = null) {
+    const isEditing = Boolean(eventItem);
+    return `
+      <form class="panel" data-form="${isEditing ? "event-edit" : "event"}" ${isEditing ? `data-event-id="${eventItem.id}"` : ""}>
+        <h2>${isEditing ? "Modifica evento" : "Nuovo evento"}</h2>
+        <div class="form-grid">
+          <label class="full">Titolo<input name="title" required placeholder="Es. Saggio classico" value="${escapeHtml(eventItem?.title || "")}" /></label>
+          <label>Data<input name="date" type="date" required value="${escapeHtml(eventItem?.date || "")}" /></label>
+          <label>Teatro<select name="theaterId">${optionalTheaterSelectOptions(eventItem?.theaterId || "")}</select></label>
+          <label>Massimo posti per utente<input name="maxSeatsPerUser" type="number" min="1" value="${escapeHtml(eventItem?.maxSeatsPerUser || 6)}" required /></label>
+          <label>Giorni per approvazione<input name="approvalDays" type="number" min="1" value="${escapeHtml(eventItem?.approvalDays || 3)}" required /></label>
+          <label>Posti a prezzo base<input name="includedSeats" type="number" min="0" value="${escapeHtml(eventItem?.includedSeats || 2)}" required /></label>
+          <label>Prezzo base per posto<input name="includedPrice" type="number" min="0" step="0.01" value="${escapeHtml(eventItem?.includedPrice || 18)}" required /></label>
+          <label>Prezzo aggiuntivo per posto<input name="extraPrice" type="number" min="0" step="0.01" value="${escapeHtml(eventItem?.extraPrice || 28)}" required /></label>
+          <label class="full">Descrizione<textarea name="description" rows="4" placeholder="Descrizione dell'evento">${escapeHtml(eventItem?.description || "")}</textarea></label>
+          <label class="full">Locandina evento<input name="posterImage" type="file" accept="image/*" /></label>
+        </div>
+        ${eventItem?.posterImage ? `<img class="event-poster-thumb" src="${eventItem.posterImage}" alt="Locandina ${escapeHtml(eventItem.title)}" />` : ""}
+        <div class="actions">
+          <button type="submit">${isEditing ? "Salva modifiche" : "Crea evento"}</button>
+          ${isEditing ? `<button type="button" class="secondary" data-action="cancel-event-edit">Annulla</button>` : ""}
+        </div>
+      </form>
     `;
   }
 
@@ -528,8 +571,8 @@ B:10</textarea></label>
         <h3>${escapeHtml(eventItem.title)}</h3>
         <div class="meta">
           <span>${escapeHtml(eventItem.date)}</span>
-          <span>${theater ? escapeHtml(theater.name) : "Teatro mancante"}</span>
-          <span>${reserved}/${capacity} prenotati</span>
+          <span>${theater ? escapeHtml(theater.name) : "Senza teatro"}</span>
+          <span>${theater ? `${reserved}/${capacity} prenotati` : "Solo consultazione"}</span>
           <span>Max ${eventItem.maxSeatsPerUser} per utente</span>
           <span>Approvazione entro ${approvalDaysForEvent(eventItem)} giorni</span>
         </div>
@@ -537,8 +580,11 @@ B:10</textarea></label>
           <span>${eventItem.includedSeats} posti a ${money(eventItem.includedPrice)}</span>
           <span>extra ${money(eventItem.extraPrice)}</span>
         </div>
+        ${eventItem.posterImage ? `<img class="event-poster-thumb" src="${eventItem.posterImage}" alt="Locandina ${escapeHtml(eventItem.title)}" />` : ""}
+        ${eventItem.description ? `<p class="card-text">${escapeHtml(eventItem.description)}</p>` : ""}
         <div class="actions">
           <button class="secondary" data-open-event="${eventItem.id}">Apri prenotazioni</button>
+          <button class="secondary" data-edit-event="${eventItem.id}">Modifica</button>
           <button class="danger" data-delete-event="${eventItem.id}">Elimina</button>
         </div>
       </article>
@@ -547,6 +593,11 @@ B:10</textarea></label>
 
   function theaterSelectOptions() {
     return state.theaters.map((theater) => `<option value="${theater.id}">${escapeHtml(theater.name)} · ${escapeHtml(theater.city)}</option>`).join("");
+  }
+
+  function optionalTheaterSelectOptions(selectedId = "") {
+    const emptyOption = `<option value="" ${selectedId ? "" : "selected"}>Nessun teatro</option>`;
+    return emptyOption + state.theaters.map((theater) => `<option value="${theater.id}" ${theater.id === selectedId ? "selected" : ""}>${escapeHtml(theater.name)} - ${escapeHtml(theater.city)}</option>`).join("");
   }
 
   function renderBookings() {
@@ -568,37 +619,40 @@ B:10</textarea></label>
         </div>
       </div>
       ${
-        selectedEvent && theater
+        selectedEvent
           ? `
             <section class="grid">
               <div class="panel">
                 <h2>Scelta evento</h2>
                 <label>Evento<select data-event-picker>${eventSelect}</select></label>
+                ${selectedEvent.posterImage ? `<img class="event-poster-thumb" src="${selectedEvent.posterImage}" alt="Locandina ${escapeHtml(selectedEvent.title)}" />` : ""}
+                ${selectedEvent.description ? `<p class="card-text">${escapeHtml(selectedEvent.description)}</p>` : ""}
                 <div class="summary">
-                  <div class="summary-row"><span>Teatro</span><strong>${escapeHtml(theater.name)}</strong></div>
+                  <div class="summary-row"><span>Teatro</span><strong>${theater ? escapeHtml(theater.name) : "Non associato"}</strong></div>
                   <div class="summary-row"><span>Limite per utente</span><strong>${selectedEvent.maxSeatsPerUser}</strong></div>
                   <div class="summary-row"><span>Posti già tuoi</span><strong>${userSeats.length}</strong></div>
                   <div class="summary-row"><span>Nuova selezione</span><strong>${state.selectedSeats.length}</strong></div>
                   <div class="summary-row"><span>Totale da pagare</span><strong>${money(total)}</strong></div>
                   <div class="summary-row"><span>Approvazione entro</span><strong>${approvalDaysForEvent(selectedEvent)} giorni</strong></div>
                 </div>
+                ${theater ? "" : `<div class="notice">Questo evento non è associato a un teatro: puoi consultare i dati, ma non prenotare posti.</div>`}
                 <div class="notice">Dopo il pagamento la prenotazione resta in attesa finché l'amministratore la approva.</div>
                 <div class="notice ${nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "hidden" : ""}">
                   Hai superato il massimo configurato per questo evento.
                 </div>
                 <div class="actions">
-                  <button class="secondary" data-open-floorplan="${theater.id}" ${theater.floorPlanImage ? "" : "disabled"}>Apri piantina</button>
-                  <button data-action="confirm-booking" ${state.selectedSeats.length && nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "" : "disabled"}>Paga e prenota</button>
+                  <button class="secondary" data-open-floorplan="${theater?.id || ""}" ${theater?.floorPlanImage ? "" : "disabled"}>Apri piantina</button>
+                  <button data-action="confirm-booking" ${theater && state.selectedSeats.length && nextCount <= Number(selectedEvent.maxSeatsPerUser) ? "" : "disabled"}>Paga e prenota</button>
                   <button class="secondary" data-action="clear-selection">Annulla selezione</button>
                 </div>
               </div>
-              <div class="panel">
+              <div class="panel ${theater ? "" : "hidden"}">
                 <h2>Mappa posti</h2>
-                ${renderSeatMap(theater, selectedEvent, state.selectedSeats)}
+                ${theater ? renderSeatMap(theater, selectedEvent, state.selectedSeats) : ""}
               </div>
             </section>
           `
-          : `<div class="empty">Crea almeno un teatro e un evento per iniziare le prenotazioni.</div>`
+          : `<div class="empty">Crea almeno un evento per iniziare.</div>`
       }
     `;
   }
@@ -697,8 +751,16 @@ B:10</textarea></label>
           <button type="submit">Aggiorna password</button>
         </form>
         <div class="panel">
-          <h2>Sicurezza</h2>
-          <div class="notice">Le credenziali sono salvate nel browser, coerentemente con la scelta senza database server.</div>
+          <h2>Dati applicazione</h2>
+          <div class="notice">I dati sono salvati nel browser. Esporta un file JSON per trasferirli e importalo su una nuova installazione.</div>
+          ${
+            user.role === "admin"
+              ? `<div class="actions">
+                  <button data-action="export-data" type="button">Esporta JSON</button>
+                  <label class="upload-button">Importa JSON<input data-data-import type="file" accept="application/json,.json" /></label>
+                </div>`
+              : ""
+          }
         </div>
       </section>
     `;
@@ -868,6 +930,7 @@ B:10</textarea></label>
     app.querySelector("[data-form='theater']")?.addEventListener("submit", createTheater);
     app.querySelector("[data-form='theater-edit']")?.addEventListener("submit", updateTheater);
     app.querySelector("[data-form='event']")?.addEventListener("submit", createEvent);
+    app.querySelector("[data-form='event-edit']")?.addEventListener("submit", updateEvent);
     app.querySelector("[data-form='password']")?.addEventListener("submit", changePassword);
     app.querySelector("[data-form='admin-user']")?.addEventListener("submit", createUserByAdmin);
     app.querySelectorAll("[data-form='admin-password']").forEach((form) => {
@@ -894,6 +957,8 @@ B:10</textarea></label>
 
     app.querySelector("[data-action='confirm-booking']")?.addEventListener("click", confirmBooking);
     app.querySelector("[data-action='print-bookings']")?.addEventListener("click", () => window.print());
+    app.querySelector("[data-action='export-data']")?.addEventListener("click", exportData);
+    app.querySelector("[data-data-import]")?.addEventListener("change", (event) => importData(event.target.files?.[0]));
 
     app.querySelectorAll("[data-open-event]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -903,6 +968,18 @@ B:10</textarea></label>
         saveState();
         render();
       });
+    });
+
+    app.querySelectorAll("[data-edit-event]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.editingEventId = button.dataset.editEvent;
+        render();
+      });
+    });
+
+    app.querySelector("[data-action='cancel-event-edit']")?.addEventListener("click", () => {
+      state.editingEventId = null;
+      render();
     });
 
     app.querySelectorAll("[data-delete-theater]").forEach((button) => {
@@ -972,7 +1049,7 @@ B:10</textarea></label>
       return;
     }
     state.theaters.push({
-      id: uid(),
+      id: existing.id || uid(),
       name: String(form.get("name")).trim(),
       city: String(form.get("city")).trim(),
       sections,
@@ -1011,22 +1088,41 @@ B:10</textarea></label>
     render();
   }
 
-  function createEvent(event) {
+  async function createEvent(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    state.events.push({
-      id: uid(),
+    state.events.push(await eventDataFromForm(form, { id: uid() }));
+    saveState();
+    render();
+  }
+
+  async function updateEvent(event) {
+    event.preventDefault();
+    const eventItem = eventById(event.currentTarget.dataset.eventId);
+    if (!eventItem) return;
+
+    Object.assign(eventItem, await eventDataFromForm(new FormData(event.currentTarget), eventItem));
+    state.editingEventId = null;
+    saveState();
+    render();
+  }
+
+  async function eventDataFromForm(form, existing = {}) {
+    const posterFile = form.get("posterImage");
+    return {
+      ...existing,
+      id: existing.id || uid(),
       title: String(form.get("title")).trim(),
+      description: String(form.get("description")).trim(),
       date: String(form.get("date")),
-      theaterId: String(form.get("theaterId")),
+      theaterId: String(form.get("theaterId") || ""),
       maxSeatsPerUser: Number(form.get("maxSeatsPerUser")),
       approvalDays: Number(form.get("approvalDays")),
       includedSeats: Number(form.get("includedSeats")),
       includedPrice: Number(form.get("includedPrice")),
-      extraPrice: Number(form.get("extraPrice"))
-    });
-    saveState();
-    render();
+      extraPrice: Number(form.get("extraPrice")),
+      posterImage: posterFile instanceof File && posterFile.size ? await readImageFile(posterFile) : existing.posterImage || ""
+    };
   }
 
   function changePassword(event) {
@@ -1124,6 +1220,7 @@ B:10</textarea></label>
   function confirmBooking() {
     const eventItem = eventById(state.selectedEventId);
     if (!eventItem || !state.selectedSeats.length) return;
+    if (!theaterById(eventItem.theaterId)) return;
     const userSeats = userSeatsForEvent(eventItem.id, state.currentUserId);
     if (userSeats.length + state.selectedSeats.length > Number(eventItem.maxSeatsPerUser)) {
       alert("La selezione supera il massimo posti per utente.");
@@ -1168,6 +1265,46 @@ B:10</textarea></label>
     state.bookings = state.bookings.filter((item) => item.id !== bookingId);
     saveState();
     render();
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify(portableState(), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prenotazioni-etoile-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importData(file) {
+    if (!file) return;
+    try {
+      const imported = JSON.parse(await readTextFile(file));
+      if (!Array.isArray(imported.users) || !Array.isArray(imported.theaters) || !Array.isArray(imported.events)) {
+        throw new Error("File dati non valido.");
+      }
+
+      state = {
+        ...structuredClone(initialState),
+        ...imported,
+        theaters: imported.theaters.map(normalizeTheater),
+        events: imported.events.map(normalizeEvent),
+        bookings: Array.isArray(imported.bookings) ? imported.bookings : [],
+        currentUserId: null,
+        activeView: "bookings",
+        selectedSeats: [],
+        editingTheaterId: null,
+        editingEventId: null,
+        showNewTheaterForm: false,
+        schemaVersion: 2
+      };
+      saveState();
+      alert("Dati importati. Effettua nuovamente l'accesso.");
+      render();
+    } catch (error) {
+      alert(error.message || "Impossibile importare il file JSON.");
+    }
   }
 
   function deleteTheater(id) {
@@ -1241,6 +1378,15 @@ B:10</textarea></label>
     }).catch((error) => {
       alert(error.message || "Impossibile caricare l'immagine.");
       return "";
+    });
+  }
+
+  function readTextFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result)));
+      reader.addEventListener("error", () => reject(reader.error));
+      reader.readAsText(file);
     });
   }
 

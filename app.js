@@ -1080,7 +1080,7 @@ B:10</textarea></label>
       return;
     }
     state.theaters.push({
-      id: existing.id || uid(),
+      id: uid(),
       name: String(form.get("name")).trim(),
       city: String(form.get("city")).trim(),
       sections,

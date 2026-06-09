@@ -348,9 +348,17 @@ label.upload-button {
 
 .seat-row {
   display: grid;
-  grid-template-columns: 34px repeat(var(--cols), 34px);
+  grid-template-columns: 34px max-content;
   gap: 7px;
   align-items: center;
+}
+
+.seat-row-seats {
+  width: var(--section-width);
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 34px);
+  gap: 7px;
+  justify-content: center;
 }
 
 .row-label {

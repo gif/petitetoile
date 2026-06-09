@@ -608,6 +608,8 @@ B:10</textarea></label>
     const mine = eventItem ? userSeatsForEvent(eventItem.id, state.currentUserId) : [];
     const sections = theater.sections
       .map((section) => {
+        const maxSeats = Math.max(1, ...section.rows.map((row) => Number(row.seats)));
+        const sectionWidth = maxSeats * 34 + (maxSeats - 1) * 7;
         const rows = section.rows
           .map((row) => {
             const seats = Array.from({ length: Number(row.seats) }, (_, index) => {
@@ -618,7 +620,7 @@ B:10</textarea></label>
               const classes = ["seat", isTaken ? "taken" : "", isMine ? "mine" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
               return `<button class="${classes}" data-seat="${code}" ${isTaken || !eventItem ? "disabled" : ""} title="${seatLabel(code, theater)}">${index + 1}</button>`;
             }).join("");
-            return `<div class="seat-row" style="--cols:${row.seats}"><span class="row-label">${escapeHtml(row.label)}</span>${seats}</div>`;
+            return `<div class="seat-row"><span class="row-label">${escapeHtml(row.label)}</span><div class="seat-row-seats" style="--cols:${row.seats}; --section-width:${sectionWidth}px">${seats}</div></div>`;
           })
           .join("");
         return `<section class="seat-section"><h3>${escapeHtml(section.name)}</h3>${rows || `<div class="empty">Nessuna fila configurata.</div>`}</section>`;
